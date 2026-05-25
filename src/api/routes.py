@@ -1,9 +1,10 @@
 """API route definitions."""
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict, Optional
 
 from src.agent import AgentRegistry, AgentStatus
+from src.api.auth import token_store
 
 router = APIRouter()
 registry = AgentRegistry()
@@ -53,6 +54,27 @@ async def stop_agent(agent_id: str):
 @router.get("/agents/count")
 async def agent_count():
     return {"count": registry.count()}
+
+
+@router.post("/auth/token")
+async def create_token(request: Request):
+    """Create a new access token with refresh token rotation support."""
+    body = await request.json()
+    username = body.get("username", "anonymous")
+    role = body.get("role", "user")
+    result = token_store.create_session(username, role)
+    return result
+
+
+@router.post("/auth/refresh")
+async def refresh_token(request: Request):
+    """Exchange a refresh token for a new access + refresh pair (rotation)."""
+    body = await request.json()
+    refresh_token = body.get("refresh_token", "")
+    result = token_store.refresh(refresh_token)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    return result
 
 # 2019-03-18T11:10:18 update
 
