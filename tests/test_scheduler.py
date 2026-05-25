@@ -36,6 +36,42 @@ class TestTaskScheduler:
         task = asyncio.run(self.scheduler.dequeue())
         assert self.scheduler.fail(task["id"])
 
+    def test_reclaim_abandoned_returns_zero_when_none_expired(self):
+        assert self.scheduler.reclaim_abandoned() == 0
+
+    def test_reclaim_abandoned_reclaims_expired_jobs(self):
+        short = TaskScheduler(reclaim_timeout=0)
+        import asyncio
+        short.enqueue({"type": "test"})
+        task = asyncio.run(short.dequeue())
+        import time
+        time.sleep(0.001)
+        reclaimed = short.reclaim_abandoned()
+        assert reclaimed == 1
+
+    def test_reclaimed_job_reenqueued(self):
+        short = TaskScheduler(reclaim_timeout=0)
+        import asyncio
+        short.enqueue({"type": "test"})
+        task = asyncio.run(short.dequeue())
+        import time
+        time.sleep(0.001)
+        short.reclaim_abandoned()
+        # Job should be available for dequeue again
+        retask = asyncio.run(short.dequeue())
+        assert retask is not None
+        assert retask["_reclaim_count"] == 1
+
+    def test_completed_job_not_reclaimed(self):
+        short = TaskScheduler(reclaim_timeout=0)
+        import asyncio
+        short.enqueue({"type": "test"})
+        task = asyncio.run(short.dequeue())
+        short.complete(task["id"])
+        import time
+        time.sleep(0.001)
+        assert short.reclaim_abandoned() == 0
+
 # 2019-01-09T19:07:03 update
 
 # 2019-02-18T12:30:02 update

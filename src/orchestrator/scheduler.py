@@ -31,11 +31,12 @@ class PriorityQueue:
 
 
 class TaskScheduler:
-    def __init__(self):
+    def __init__(self, reclaim_timeout: float = 300.0):
         self._queues: Dict[str, PriorityQueue] = {}
         self._scheduled: Dict[str, float] = {}
         self._in_flight: Dict[str, Dict] = {}
         self._max_retries = 3
+        self._reclaim_timeout = reclaim_timeout
 
     def enqueue(self, task: Dict, queue: str = "default", priority: int = 0) -> str:
         task_id = str(uuid4())
@@ -65,9 +66,30 @@ class TaskScheduler:
         if queue in self._queues and len(self._queues[queue]) > 0:
             task = self._queues[queue].pop()
             if task:
+                task["_reserved_at"] = time.time()
                 self._in_flight[task["id"]] = task
                 return task
         return None
+
+    def reclaim_abandoned(self, queue: str = "default") -> int:
+        """Reclaim jobs that have been in-flight beyond the reclaim_timeout.
+
+        Returns the number of jobs reclaimed.
+        """
+        now = time.time()
+        reclaimed = 0
+        to_reclaim = [
+            tid for tid, task in self._in_flight.items()
+            if now - task.get("_reserved_at", 0) > self._reclaim_timeout
+        ]
+        for tid in to_reclaim:
+            task = self._in_flight.pop(tid, None)
+            if task:
+                reclaim_count = task.get("_reclaim_count", 0) + 1
+                task["_reclaim_count"] = reclaim_count
+                self.enqueue(task, queue)
+                reclaimed += 1
+        return reclaimed
 
     def complete(self, task_id: str) -> bool:
         return self._in_flight.pop(task_id, None) is not None
